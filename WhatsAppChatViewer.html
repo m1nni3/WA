@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Chat Viewer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #chatDisplay {
+            height: 400px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        #chatDisplay p {
+            margin-bottom: 5px;
+        }
+        .date-time {
+            color: #888;
+            font-size: 0.8em;
+        }
+        .highlight {
+            background-color: yellow;
+        }
+        .floating-menu {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .floating-menu button {
+            margin-bottom: 5px;
+        }
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 1; 
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgb(0,0,0); 
+            background-color: rgba(0,0,0,0.4); 
+            padding-top: 60px;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; 
+            padding: 20px;
+            border: 1px solid #888;
+            width: 30%;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>WhatsApp Chat Viewer</h2>
+
+        <input type="file" id="fileInput" accept=".txt">
+        <button id="processBtn">Display Chat</button>
+
+        <div id="filter-panel">
+            <label for="fromDate">From:</label>
+            <input type="date" id="fromDate">
+            <label for="toDate">To:</label>
+            <input type="date" id="toDate">
+            <button id="applyFilter">Apply</button>
+        </div>
+
+        <div id="chatDisplay"></div>
+
+        <div class="floating-menu">
+            <button id="findBtn">Find</button>
+            <button id="findNextBtn">Next</button>
+            <button id="findPrevBtn">Previous</button>
+            <button id="cancelBtn">Cancel</button>
+            <button id="exportBtn">Export</button>
+        </div>
+
+        <div id="exportModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Export Options</h2>
+                <button id="exportHTML">HTML</button>
+                <button id="exportPDF">PDF</button>
+                <button id="exportLongImage">Long Image</button>
+                <button id="exportImage">Image</button> 
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script> 
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script>
+        function transformChat(text) {
+            let html = "";
+            const lines = text.split('\n');
+            const dateRegex = /(\d{1,2}\/\d{1,2}\/\d{2,4}, \d{1,2}:\d{2} [AP]M) - (.*?): (.*)/;
+
+            for (const line of lines) {
+                const match = line.match(dateRegex);
+                if (match) {
+                    const dateTime = match[1];
+                    const sender = match[2];
+                    const content = match[3];
+                    html += `<p><span class="date-time">${dateTime}</span> <strong>${sender}:</strong> ${content}</p>`;
+                } else {
+                    // Handle lines that don't match (e.g., system messages)
+                    html += `<p class="system-message">${line}</p>`; 
+                }
+            }
+            return html;
+        }
+
+        document.getElementById('processBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput');
+            const chatDisplay = document.getElementById('chatDisplay');
+
+            if (fileInput.files.length === 0) {
+                alert('Please select a file.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function (event) {
+                const text = event.target.result;
+                chatDisplay.innerHTML = transformChat(text);
+
+                // After displaying the chat, get the date range and update filters
+                const dates = getDatesFromChat(chatDisplay.innerHTML);
+                updateDateFilters(dates); 
+            };
+
+            reader.onerror = function () {
+                alert('Could not read file.');
+            };
+
+            reader.readAsText(file);
+        });
+
+        function getDatesFromChat(chatContent) {
+            const dateRegex = /\d{1,2}\/\d{1,2}\/\d{2,4}, \d{1,2}:\d{2} [AP]M/g;
+            const dates = chatContent.match(dateRegex);
+
+            if (!dates) return []; // Return empty array if no dates are found
+
+            const uniqueDates = [...new Set(dates)];
+            return uniqueDates.map(dateStr => {
+                const [day, month, year, time] = dateStr.match(/\d{1,2}|\d{2,4}|[AP]M/g);
+                return new Date(`${month}/${day}/${year} ${time}`);
+            });
+        }
+
+        function updateDateFilters(dates) {
+            const fromDateInput = document.getElementById('fromDate');
+            const toDateInput = document.getElementById('toDate');
+
+            if (dates.length > 0) {
+                const minDate = dates.reduce((min, date) => date < min ? date : min, dates[0]);
+                const maxDate = dates.reduce((max, date) => date > max ? date : max, dates[0]);
+
+                fromDateInput.min = minDate.toISOString().split('T')[0];
+                fromDateInput.max = maxDate.toISOString().split('T')[0];
+                toDateInput.min = minDate.toISOString().split('T')[0];
+                toDateInput.max = maxDate.toISOString().split('T')[0];
+            }
+        }
+
+        document.getElementById('applyFilter').addEventListener('click', () => {
+            const fromDate = document.getElementById('fromDate').value;
+            const toDate = document.getElementById('toDate').value;
+            filterChatByDate(fromDate, toDate);
+        });
+
+        function filterChatByDate(fromDate, toDate) {
+            const chatDisplay = document.getElementById('chatDisplay');
+            const messages = chatDisplay.querySelectorAll('p');
+
+            messages.forEach(message => {
+                const dateStr = message.querySelector('.date-time').textContent;
+                if (dateStr) { // Check if dateStr exists
+                    const [day, month, year, time] = dateStr.match(/\d{1,2}|\d{2,4}|[AP]M/g);
+                    const messageDate = new Date(`${month}/${day}/${year} ${time}`);
+
+                    if (messageDate >= new Date(fromDate) && messageDate <= new Date(toDate)) {
+                        message.style.display = 'block';
+                    } else {
+                        message.style.display = 'none';
+                    }
+                } else {
+                    // If no date-time is found, hide the message (e.g., system messages)
+                    message.style.display = 'none'; 
+                }
+            });
+        }
+
+        // Find Feature
+        let searchTerm = "";
+        let searchMatches = [];
+        let currentMatchIndex = -1;
+
+        document.getElementById('findBtn').addEventListener('click', () => {
+            searchTerm = prompt("Enter text to find:");
+            if (searchTerm) {
+                highlightSearch(searchTerm);
+                findNextMatch();
+            }
+        });
+
+        document.getElementById('findNextBtn').addEventListener('click', findNextMatch);
+        document.getElementById('findPrevBtn').addEventListener('click', findPrevMatch);
+
+        function highlightSearch(term) {
+            const chatDisplay = document.getElementById('chatDisplay');
+            const chatContent = chatDisplay.innerHTML;
+            const regex = new RegExp(term, 'gi');
+
+            searchMatches = [];
+            currentMatchIndex = -1;
+
+            let match;
+            while ((match = regex.exec(chatContent)) !== null) {
+                searchMatches.push({
+                    index: match.index,
+                    length: match[0].length
+                });
+            }
+
+            const highlightedContent = chatContent.replace(regex, '<span class="highlight">$&</span>');
+            chatDisplay.innerHTML = highlightedContent;
+
+            if (searchMatches.length > 0) {
+                alert(`${searchMatches.length} match(es) found.`);
+            } else {
+                alert("No matches found.");
+            }
+        }
+
+        function findNextMatch() {
+            if (searchMatches.length === 0) return;
+            currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+            scrollToMatch(currentMatchIndex);
+        }
+
+        function findPrevMatch() {
+            if (searchMatches.length === 0) return;
+            currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+            scrollToMatch(currentMatchIndex);
+        }
+
+        function scrollToMatch(index) {
+            const chatDisplay = document.getElementById('chatDisplay');
+            const match = searchMatches[index];
+            const node = chatDisplay.querySelector(`.highlight:nth-of-type(${index + 1})`); 
+            if (node) {
+                node.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }
+
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            document.getElementById('fromDate').value = "";
+            document.getElementById('toDate').value = "";
+            filterChatByDate("", ""); 
+            
+            const chatDisplay = document.getElementById('chatDisplay');
+            chatDisplay.innerHTML = chatDisplay.innerHTML.replace(/<span class="highlight">/g, "");
+            
+            searchTerm = "";
+            searchMatches = [];
+            currentMatchIndex = -1;
+        });
+
+        // Export Functionality
+        const modal = document.getElementById("exportModal");
+        const span = document.getElementsByClassName("close")[0];
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            modal.style.display = "block";
+        });
+
+        span.onclick = function() {
+            modal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        document.getElementById('exportHTML').addEventListener('click', () => {
+            exportChat('html');
+        });
+
+        document.getElementById('exportPDF').addEventListener('click', () => {
+            exportChat('pdf');
+        });
+
+        document.getElementById('exportLongImage').addEventListener('click', () => {
+            exportChat('longImage');
+        });
+
+        document.getElementById('exportImage').addEventListener('click', () => {
+            exportChat('image');
+        });
+
+        function exportChat(format) {
+            const chatDisplay = document.getElementById('chatDisplay');
+
+            if (format === 'html') {
+                const htmlContent = `
+                    <!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>Exported WhatsApp Chat</title>
+                        <style>
+                            /* ... (Include necessary CSS for styling the chat) ... */
+                            body {
+                                font-family: sans-serif;
+                            }
+                            .date-time {
+                                color: #888;
+                                font-size: 0.8em;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        ${chatDisplay.innerHTML}
+                    </body>
+                    </html>
+                `;
+
+                const blob = new Blob([htmlContent], { type: 'text/html' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'whatsapp_chat.html';
+                link.click();
+            } else if (format === 'pdf') {
+                const doc = new jsPDF();
+                doc.html(chatDisplay, {
+                    callback: function (doc) {
+                        doc.save('whatsapp_chat.pdf');
+                    },
+                    x: 10,
+                    y: 10,
+                    html2canvas: {
+                        scale: 0.8 // Adjust scale as needed
+                    }
+                });
+            } else if (format === 'longImage') { 
+                html2canvas(chatDisplay, {
+                    allowTaint: true,
+                    useCORS: true,
+                    // You might need to adjust these options:
+                    // windowWidth: chatDisplay.scrollWidth,
+                    // windowHeight: chatDisplay.scrollHeight,
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.href = canvas.toDataURL('image/png'); 
+                    link.download = 'whatsapp_chat_long.png';
+                    link.click();
+                });
+            } else if (format === 'image') {
+                // For single image export, you might want to capture a specific area or 
+                // implement logic to split the chat into multiple images if it's too long.
+                html2canvas(chatDisplay, {
+                    allowTaint: true,
+                    useCORS: true,
+                    // ... other options ...
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.href = canvas.toDataURL('image/png'); 
+                    link.download = 'whatsapp_chat.png';
+                    link.click();
+                }); 
+            }
+        }
+    </script>
+</body>
+</html>
